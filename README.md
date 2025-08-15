@@ -1,16 +1,16 @@
 ## Steering mutations pipeline (layer 14)
 
-This repo builds steering vectors from `evo_gcp` embeddings and evaluates how steering changes codon likelihoods across all 64 variants for a given AID and scale.
+This repo builds steering vectors from `evo_gcp` embeddings and evaluates how steering changes codon likelihoods across all 64 variants for a given AID and scale. This workflow looks at this through total log_likelihood of the whole sequence based on the 64 codon possibilites at "position 83" the mutation position. 
 
 ### Key scripts
 
 - `build_steering_vec.sh`: Orchestrates building steering vectors from embeddings.
   - Inputs: `input/updated_data.tsv`, embeddings under `jobs/<job>/output/*.npy`.
-  - Args: positional `win_len` (default 200), optional margins (left/right; defaults 2000/1000).
-  - Calls `scripts/make_steering_vectors.R` for `pre_norm` and `mlp_l3`.
+  - Args: positional `win_len` (default 200) is the length of the steering vector, optional margins (left/right; defaults 2000/1000), uses layer 14.
+  - Calls `scripts/make_steering_vectors.R` for `pre_norm` and `mlp_l3`, but I was focusing on pre_norm.
 
 - `scripts/make_steering_vectors.R`: Reads `.npy` embeddings, computes per‑AID difference vectors and the average steering vector.
-  - Windowing: start index depends on layer (`pre_norm`: 1; `mlp_l3`: 2), length = `--win_len`.
+  - Windowing: start index depends on layer (`pre_norm`: 1; `mlp_l3`: 2), length = `--win_len` because mlp_l3 spikes the nucleotide after the mutation. 
   - Vector formula: per‑position differences (target − source) → column mean → L2‑normalize per‑AID → average across AIDs → L2‑normalize.
   - Outputs (non‑normalized per‑position diffs before averaging):
     - Subject vectors: `vectors/non_norm_diff_vec/non_norm_<aid>_<embed>_len<win_len>.tsv`
@@ -23,14 +23,14 @@ This repo builds steering vectors from `evo_gcp` embeddings and evaluates how st
     - FASTA/TSV: `output/<normalized_steering|non_normalized_steering>/steer_scale_<S>/len_<LEN>/<aid>/`
     - Figure: `figures/<normalized_steering|non_normalized_steering>/steer_scale_<S>/len_<LEN>/<aid>/steered_vs_unsteered.pdf`
 
-- `scripts/create_steering_table.r`: Merges `input_summary_unsteered.txt` with `input_summary_scale_<scale>.txt` (accepts `10` or `10.0`).
-  - Output: `steered_vs_unsteered_<seq>_<pos>.tsv` with columns `seq_id, unsteered, steered`.
+- `scripts/create_steering_table.r`: Merges `input_summary_unsteered.txt` with `input_summary_scale_<scale>.txt`.
+  - Output: `steered_vs_unsteered_<seq>_<pos>.tsv` with columns `seq_id, unsteered, steered` for easy plotting.
 
-- `scripts/plot_steered_vs_unsteered.r`: Plots steered vs unsteered totals for 64 codons with labels `AA_CODON`; optionally highlights source/target codons.
+- `scripts/plot_steered_vs_unsteered.r`: Plots steered vs unsteered totals for 64 codons with labels `AA_CODON`; optionally highlights source/target codons (on by default).
 
 ### Vectors directory
 
-- Non‑normalized outputs (default): `vectors/non_norm_diff_vec/`
+- Non‑normalized outputs (default): `vectors/non_norm_diff_vec/` (vectors without a len suffix are len200)
   - Subject: `non_norm_<aid>_<embed>_len<win_len>.tsv`
   - Steering: `non_norm_steering_<embed>_len<win_len>.tsv`
 - Normalized aliases (optional): `vectors/normalized_diff_vec/`
@@ -62,14 +62,11 @@ bash scripts/run_64_codons_steering.sh \
 
 3) Negative scales
 ```bash
-# Either quote the minus or use the documented n-prefix (n100 == -100)
 bash scripts/run_64_codons_steering.sh --aid BAA --steering_vec vectors/non_norm_diff_vec/non_norm_steering_pre_norm_len100.tsv --scale "-100" --layer_kind pre_norm
-bash scripts/run_64_codons_steering.sh --aid BAA --steering_vec vectors/non_norm_diff_vec/non_norm_steering_pre_norm_len100.tsv --scale n100 --layer_kind pre_norm
 ```
 
 ### Notes
 
 - Embeddings must exist under the job dirs referenced by `build_steering_vec.sh` (or adjust `--jobs_dir` when calling the R script directly).
 - The `evo_gcp` CLI and its steering options are documented here: [evo2_gcp docs](https://github.com/eitanyaffe/evo2_gcp/tree/main).
-- Ensure your `input/updated_data.tsv` has: `aid gene contig start end strand flipped src_codon tgt_codon mut_pos`.
 
