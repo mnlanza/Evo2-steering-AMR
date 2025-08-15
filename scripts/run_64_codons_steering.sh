@@ -142,6 +142,5 @@ while IFS=$'\t' read -r AID GENE CONTIG START END STRAND FLIPPED SRC_CODON TGT_C
 
 done < <(tail -n +2 "$UPDATED")
 
-echo "[Done] All AIDs processed."
 
 
