@@ -94,7 +94,9 @@ while IFS=$'\t' read -r AID GENE CONTIG START END STRAND FLIPPED SRC_CODON TGT_C
     --gene-end "$END"
 
   job_id=$(echo "${aid_lc}" | tr '_' '-')
-  job_version=$(echo "${LAYER_KIND//_/-}-scale${SCALE}-vec-${VEC_KIND}-len${VEC_LEN}" | tr '[:upper:]' '[:lower:]')
+  # Sanitize scale for job naming: replace '.' with 'p' to satisfy GCP job id rules
+  SCALE_SLUG="${SCALE//./p}"
+  job_version=$(echo "${LAYER_KIND//_/-}-scale${SCALE_SLUG}-vec-${VEC_KIND}-len${VEC_LEN}" | tr '[:upper:]' '[:lower:]')
   job_dir="jobs/${job_id}-${job_version}"
   mkdir -p "$job_dir"
 
@@ -128,13 +130,15 @@ while IFS=$'\t' read -r AID GENE CONTIG START END STRAND FLIPPED SRC_CODON TGT_C
 
   # Save plots under figures/<normalized|non_normalized|unsteered>/steer_scale_<scale>/<aid>
   plot_dir="figures/${STEER_KIND}/steer_scale_${SCALE}/len_${VEC_LEN}/${aid_lc}"
-  Rscript scripts/plot_steered_vs_unsteered.r \
-    --table "$tbl_out" \
-    --title "${AID} ${seq_id}:${pos} (scale ${SCALE}, ${STEER_LABEL}, len ${VEC_LEN})" \
-    --outdir "$plot_dir" \
-    --codon_table "$CODON_TABLE" \
-    --src_codon "$SRC_CODON" \
-    --tgt_codon "$TGT_CODON"
+  plot_args=(
+    --table "$tbl_out"
+    --title "${AID} ${seq_id}:${pos} (scale ${SCALE}, ${STEER_LABEL}, len ${VEC_LEN})"
+    --outdir "$plot_dir"
+    --codon_table "$CODON_TABLE"
+  )
+  if [ -n "${SRC_CODON:-}" ]; then plot_args+=( --src_codon "$SRC_CODON" ); fi
+  if [ -n "${TGT_CODON:-}" ]; then plot_args+=( --tgt_codon "$TGT_CODON" ); fi
+  Rscript scripts/plot_steered_vs_unsteered.r "${plot_args[@]}"
 
 done < <(tail -n +2 "$UPDATED")
 

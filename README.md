@@ -1,91 +1,75 @@
-## Steering workflow (layer14)
+## Steering mutations pipeline (layer 14)
 
-This workflow builds per-subject average vectors, creates a single steering vector, runs steered jobs across scales, evaluates Δlog-likelihood for codon position 83 (positive strand), and plots decay curves for two layers: `mlp_l3` (blocks.14.mlp.l3) and `pre_norm` (blocks.14.pre_norm).
+This repo builds steering vectors from `evo_gcp` embeddings and evaluates how steering changes codon likelihoods across all 64 variants for a given AID and scale.
 
-### Layout
+### Key scripts
 
-```
-steering/
-  scripts/
-    lib_common.sh
-    lib_plot.R
-    build_subject_vectors.py
-    average_vectors.py
-    run_steering.sh
-    eval_pos83.R
-    plot_decay_curves.R
-  vectors/
-  results/
-  plots/
-  .gitignore
-```
+- `build_steering_vec.sh`: Orchestrates building steering vectors from embeddings.
+  - Inputs: `input/updated_data.tsv`, embeddings under `jobs/<job>/output/*.npy`.
+  - Args: positional `win_len` (default 200), optional margins (left/right; defaults 2000/1000).
+  - Calls `scripts/make_steering_vectors.R` for `pre_norm` and `mlp_l3`.
 
-### Conventions
+- `scripts/make_steering_vectors.R`: Reads `.npy` embeddings, computes per‑AID difference vectors and the average steering vector.
+  - Windowing: start index depends on layer (`pre_norm`: 1; `mlp_l3`: 2), length = `--win_len`.
+  - Vector formula: per‑position differences (target − source) → column mean → L2‑normalize per‑AID → average across AIDs → L2‑normalize.
+  - Outputs (non‑normalized per‑position diffs before averaging):
+    - Subject vectors: `vectors/non_norm_diff_vec/non_norm_<aid>_<embed>_len<win_len>.tsv`
+    - Steering vector: `vectors/non_norm_diff_vec/non_norm_steering_<embed>_len<win_len>.tsv`
 
-- **vectors**: `vectors/subject_<aid>_layer14_<embed>.tsv.gz`, `vectors/steering_avg_layer14_<embed>.tsv.gz`
-- **results**: `results/pos83_ll_scale_<scale>_layer14_<embed>.tsv`
-- **layers**: keep separate; never mix `mlp_l3` and `pre_norm`.
+- `scripts/run_64_codons_steering.sh`: Generates all 64 codon variants for an AID, submits `evo_gcp` summaries with a steering vector, downloads, merges, and plots.
+  - Detects vector kind from path: normalized vs non‑normalized.
+  - Job naming: `<aid>-<layer_kind>-scale<S>-vec-<norm|non-norm>-len<LEN>`
+  - Outputs per run:
+    - FASTA/TSV: `output/<normalized_steering|non_normalized_steering>/steer_scale_<S>/len_<LEN>/<aid>/`
+    - Figure: `figures/<normalized_steering|non_normalized_steering>/steer_scale_<S>/len_<LEN>/<aid>/steered_vs_unsteered.pdf`
 
-### Steps
+- `scripts/create_steering_table.r`: Merges `input_summary_unsteered.txt` with `input_summary_scale_<scale>.txt` (accepts `10` or `10.0`).
+  - Output: `steered_vs_unsteered_<seq>_<pos>.tsv` with columns `seq_id, unsteered, steered`.
 
-1) Build per-subject average vectors (normalize each input vector to unit length before averaging):
+- `scripts/plot_steered_vs_unsteered.r`: Plots steered vs unsteered totals for 64 codons with labels `AA_CODON`; optionally highlights source/target codons.
 
+### Vectors directory
+
+- Non‑normalized outputs (default): `vectors/non_norm_diff_vec/`
+  - Subject: `non_norm_<aid>_<embed>_len<win_len>.tsv`
+  - Steering: `non_norm_steering_<embed>_len<win_len>.tsv`
+- Normalized aliases (optional): `vectors/normalized_diff_vec/`
+  - Steering: `norm_steering_<embed>.tsv` (if created)
+
+### Figures directory
+
+Plots are segregated to avoid overwrite across scale/vector kind/length:
+
+- `figures/non_normalized_steering/steer_scale_<S>/len_<LEN>/<aid>/steered_vs_unsteered.pdf`
+- `figures/normalized_steering/steer_scale_<S>/len_<LEN>/<aid>/steered_vs_unsteered.pdf`
+
+### Typical runs
+
+1) Build vectors from existing embeddings with a specific window length (e.g., 100):
 ```bash
-python steering/scripts/build_subject_vectors.py \
-  --raw-dir steering/vectors/raw \
-  --embed mlp_l3 \
-  --layer 14 \
-  --out-dir steering/vectors
-
-python steering/scripts/build_subject_vectors.py \
-  --raw-dir steering/vectors/raw \
-  --embed pre_norm \
-  --layer 14 \
-  --out-dir steering/vectors
+bash build_steering_vec.sh 100
 ```
 
-2) Make the 8-subject steering average vector (and optionally emit a raw numeric TSV for evo_gcp):
-
+2) Run 64‑codon steering for an AID using a non‑normalized pre_norm vector at scale 20:
 ```bash
-python steering/scripts/average_vectors.py \
-  --vectors-dir steering/vectors \
-  --embed mlp_l3 \
-  --layer 14 \
-  --emit-raw
-
-python steering/scripts/average_vectors.py \
-  --vectors-dir steering/vectors \
-  --embed pre_norm \
-  --layer 14 \
-  --emit-raw
+LEN=100
+bash scripts/run_64_codons_steering.sh \
+  --aid BAA \
+  --steering_vec vectors/non_norm_diff_vec/non_norm_steering_pre_norm_len${LEN}.tsv \
+  --scale 20 \
+  --layer_kind pre_norm
 ```
 
-3) Run steered jobs (scales: -10, -1, -0.1, 0, 0.1, 1, 10) via evo_gcp. The script will submit once per embed with all scales and parse downloaded summaries into per-scale TSVs expected by downstream steps:
-
+3) Negative scales
 ```bash
-bash steering/scripts/run_steering.sh
-```
-
-4) Evaluate Δlog-likelihood at position 83 (positive strand):
-
-```bash
-Rscript steering/scripts/eval_pos83.R --embed mlp_l3 --layer 14 --results-dir steering/results
-Rscript steering/scripts/eval_pos83.R --embed pre_norm --layer 14 --results-dir steering/results
-```
-
-5) Plot decay curves and ΔlogL vs scale:
-
-```bash
-Rscript steering/scripts/plot_decay_curves.R --embed mlp_l3 --layer 14 \
-  --results-dir steering/results --out-dir steering/plots
-
-Rscript steering/scripts/plot_decay_curves.R --embed pre_norm --layer 14 \
-  --results-dir steering/results --out-dir steering/plots
+# Either quote the minus or use the documented n-prefix (n100 == -100)
+bash scripts/run_64_codons_steering.sh --aid BAA --steering_vec vectors/non_norm_diff_vec/non_norm_steering_pre_norm_len100.tsv --scale "-100" --layer_kind pre_norm
+bash scripts/run_64_codons_steering.sh --aid BAA --steering_vec vectors/non_norm_diff_vec/non_norm_steering_pre_norm_len100.tsv --scale n100 --layer_kind pre_norm
 ```
 
 ### Notes
 
-- If you already have plotting helpers in `scripts/plot_layer.R`, `steering/scripts/lib_plot.R` can source from there or be used standalone.
-- Set `JOBS_DIR` in your shell to point to your evo_gcp job outputs if the default is not correct.
-- The evo_gcp steering interface is documented here: [evo2_gcp README](https://github.com/eitanyaffe/evo2_gcp/tree/main). Ensure your local install is up to date (git pull) so `--steering_layer`, `--steering_vector_file`, and `--steering_scales` are supported.
+- Embeddings must exist under the job dirs referenced by `build_steering_vec.sh` (or adjust `--jobs_dir` when calling the R script directly).
+- The `evo_gcp` CLI and its steering options are documented here: [evo2_gcp docs](https://github.com/eitanyaffe/evo2_gcp/tree/main).
+- Ensure your `input/updated_data.tsv` has: `aid gene contig start end strand flipped src_codon tgt_codon mut_pos`.
 
