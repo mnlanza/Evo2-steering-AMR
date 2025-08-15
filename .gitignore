@@ -1,0 +1,37 @@
+jobs/
+**/*.npy
+**/*.npz
+**/*.log
+**/.DS_Store
+vectors/raw/
+results/tmp/
+results/jobs/
+
+# Derived artifacts
+output/
+results/
+
+# Virtual envs and local configs
+venv/
+.env
+.python-version
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# R artifacts
+.Rhistory
+.RData
+.Rproj.user/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors/IDEs
+.vscode/
+.idea/
+
+# Local logs
+run.log
