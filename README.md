@@ -30,11 +30,11 @@ This repo builds steering vectors from `evo_gcp` embeddings and evaluates how st
 
 ### Vectors directory
 
-- Non‑normalized outputs (default): `vectors/non_norm_diff_vec/` (vectors without a len suffix are len200)
+- Non‑normalized outputs (default): `vectors/non_norm_diff_vec/` (vectors without a len suffix are len200 and embed is mlp_l3 or pre_norm)
   - Subject: `non_norm_<aid>_<embed>_len<win_len>.tsv`
   - Steering: `non_norm_steering_<embed>_len<win_len>.tsv`
 - Normalized aliases (optional): `vectors/normalized_diff_vec/`
-  - Steering: `norm_steering_<embed>.tsv` (if created)
+  - Steering: `norm_steering_<embed>.tsv` =
 
 ### Figures directory
 
